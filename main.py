@@ -671,7 +671,7 @@ async def ocr_endpoint(
             detail="An unexpected error occurred during OCR processing.",
         )
 
-@app.post("/health")
+@app.get("/health")
 async def health():
     return {"status": "ok"}
 
