@@ -1,0 +1,15 @@
+{
+  "名": "string (Chinese name, leave empty if cannot found)",
+  "姓": "string (Chinese surname, leave empty if cannot found)",
+  "First Name": "string (Chinese surname, leave empty if cannot found)",
+  "Last Name": "string (Chinese surname, leave empty if cannot found)",
+  "Job Title": "string",
+  "Email Address": "string",
+  "Company Name": "string",
+  "Company Website": "string",
+  "Mobile Phone Number": "string (format: \"+\"country_code phone_number)" ,
+  "Office Phone Number": "string (format: \"+\"country_code phone_number)",
+  "Office Address 1": "string (unit and building name)",
+  "Office Address 2": "string (Street and street number)",
+  "Office Address 3": "string (District)"
+}

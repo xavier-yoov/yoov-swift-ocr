@@ -5,6 +5,9 @@ import logging
 import os
 import tempfile
 from typing import Any, Callable, List, Optional, Tuple
+from openai import OpenAI
+import json
+import re
 
 import fitz  # PyMuPDF
 import requests
@@ -14,6 +17,7 @@ from fastapi.responses import JSONResponse
 from openai import AsyncAzureOpenAI, OpenAIError
 from pydantic import BaseModel, HttpUrl, ValidationError
 from concurrent.futures import ProcessPoolExecutor, as_completed
+import json
 
 # ----------------------------
 # Configuration and Initialization
@@ -368,11 +372,18 @@ async def retry_with_backoff(
 class OCRService:
     def __init__(self):
         try:
-            self.client = AsyncAzureOpenAI(
-                azure_endpoint=Settings.AZURE_OPENAI_ENDPOINT,
-                api_version=Settings.OPENAI_API_VERSION,
+            self.client = OpenAI(
+                base_url=Settings.AZURE_OPENAI_ENDPOINT,
                 api_key=Settings.OPENAI_API_KEY,
             )
+
+
+            # self.client = AsyncAzureOpenAI(
+            #     azure_endpoint=Settings.AZURE_OPENAI_ENDPOINT,
+            #     api_version=Settings.OPENAI_API_VERSION,
+            #     api_key=Settings.OPENAI_API_KEY,
+            # )
+
         except Exception as e:
             logger.exception(f"Failed to initialize OpenAI client: {e}")
             raise RuntimeError(f"Failed to initialize OpenAI client: {e}")
@@ -392,19 +403,29 @@ class OCRService:
         """
         async def ocr_request():
             try:
-                messages = self.build_ocr_messages(image_batch)
+                # messages = self.build_ocr_messages(image_batch)
+                messages = self.build_name_card_messages(image_batch)
                 logger.info(
                     f"Sending OCR request to OpenAI with {len(image_batch)} images."
                 )
-                response = await self.client.chat.completions.create(
+                response = self.client.chat.completions.create(
                     model=Settings.OPENAI_DEPLOYMENT_ID,
-                    messages=messages,
-                    temperature=0.1,
-                    max_tokens=4000,
-                    top_p=0.95,
-                    frequency_penalty=0,
-                    presence_penalty=0,
+                    messages=messages
                 )
+
+
+                # response = await self.client.chat.completions.create(
+                #     model=Settings.OPENAI_DEPLOYMENT_ID,
+                #     messages=messages,
+                #     temperature=0.1,
+                #     max_tokens=4000,
+                #     top_p=0.95,
+                #     frequency_penalty=0,
+                #     presence_penalty=0,
+                # )
+
+                print(response.usage)
+
                 return self.extract_text_from_response(response)
             except OpenAIError as e:
                 if "rate limit" in str(e).lower():
@@ -481,6 +502,65 @@ class OCRService:
 
         return messages
 
+    def build_name_card_messages(self, image_batch: List[Tuple[int, str]]) -> List[dict]:
+        """
+        Build the message payload for the OCR request.
+
+        Args:
+            image_batch (List[Tuple[int, str]]): List of tuples containing page numbers and image URLs.
+
+        Returns:
+            List[dict]: The message payload.
+        """
+        messages = [
+            {
+                "role": "system",
+                "content": """You are an OCR assistant specialized in extracting and formatting text from name card images.
+
+Instructions:
+	1.	Use clear field names for extracted data, and nest related information logically.
+	2.	Include a non_text_elements field for any visual elements (e.g., "logo_description": "A blue star with the company name beneath it").
+	3.	Add a notes field to highlight any issues or ambiguities (e.g., blurry text, unclear details).
+""",
+            },
+            {
+                "role": "user",
+                "content": "Never skip any context! Convert the name card to one single json object. Start with first image immediately.",
+            },
+        ]
+
+        schema = json.load(open("schema.json"))
+
+        if len(image_batch) == 1:
+            # Batch size = 1: Mention the specific page number
+            page_num, img_url = image_batch[0]
+            messages.append({
+                "role": "user",
+                "content": f"Please perform OCR on the following images. Ensure that the extracted output that complied with following schema: {schema}:",
+            })
+            messages.append({
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": img_url}}
+                ],
+            })
+        else:
+            # Batch size >1: Include all page numbers and stress returning page numbers in response
+
+            messages.append({
+                "role": "user",
+                "content": f"""Please perform OCR on the following images. Ensure that the extracted output that complied with following schema: {schema}""",
+            })
+            content = []
+            for page_num, img_url in image_batch:
+                content.append({"type": "image_url", "image_url": {"url": img_url}})
+            messages.append({
+                "role": "user",
+                "content": content,
+            })
+
+        return messages
+
     def extract_text_from_response(self, response) -> str:
         """
         Extract text from the OpenAI API response.
@@ -515,7 +595,7 @@ ocr_service = OCRService()
 # API Endpoint
 # ----------------------------
 
-@app.post("/ocr", response_model=OCRResponse)
+@app.post("/ocr")
 async def ocr_endpoint(
     file: Optional[UploadFile] = File(None),
     ocr_request: Optional[OCRRequest] = None,
@@ -534,6 +614,8 @@ async def ocr_endpoint(
         HTTPException: If input validation fails or processing errors occur.
     """
     try:
+        print("file", file)
+        print("request", ocr_request)
         # Retrieve PDF bytes
         pdf_bytes = await get_pdf_bytes(file, ocr_request)
 
@@ -568,7 +650,9 @@ async def ocr_endpoint(
                     status_code=500, detail="OCR completed but no text was extracted."
                 )
 
-            return OCRResponse(text=final_text)
+            json_content = extract_json_from_markdown(final_text)
+
+            return json_content
 
         finally:
             # Clean up temporary PDF file
@@ -694,3 +778,27 @@ def concatenate_texts(texts: List[str]) -> str:
 # To run the application, use the following command:
 # uvicorn your_filename:app --reload
 # Replace `your_filename` with the name of this Python file without the `.py` extension.
+
+
+def extract_json_from_markdown(markdown_content):
+
+    print('markdown_content', markdown_content)
+
+    # Regular expression to match JSON code block
+    json_block_pattern = r"```(?:json)?\s*(\{.*?\})\s*```"
+    match = re.search(json_block_pattern, markdown_content, re.DOTALL)
+
+    print('match', match)
+    if match:
+        json_content = match.group(1)
+        try:
+            # Convert JSON string to Python object
+
+            print(json_content)
+            return json.loads(json_content)
+        except json.JSONDecodeError as e:
+            print(f"Error decoding JSON: {e}")
+            return None
+    else:
+        print("No JSON block found.")
+        return None

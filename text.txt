@@ -1,0 +1,17 @@
+[
+  {
+    "名": "沛君",
+    "姓": "盧",
+    "First Name": "Orrabi",
+    "Last Name": "Lo",
+    "Job Title": "Manager\nCorporate Facilities Management",
+    "Email Address": "orrabi.lo@hkstp.org",
+    "Company Name": "Hong Kong Science and Technology Parks Corporation",
+    "Company Website": "hkstp.org",
+    "Mobile Phone Number": "+852 2629 2330",
+    "Office Phone Number": "+852 2629 2330",
+    "Office Address 1": "5/F, Building 5E",
+    "Office Address 2": "5 Science Park East Avenue,",
+    "Office Address 3": "Hong Kong Science Park"
+  }
+]
